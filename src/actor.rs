@@ -1,15 +1,20 @@
 use anyhow::Error;
 use futures::channel::mpsc;
 use futures::{select, SinkExt, StreamExt};
+use std::net::Shutdown;
+use tokio::net::TcpStream;
 
 pub struct Actor {
     sender: mpsc::Sender<Msg>,
 }
 
 impl Actor {
-    pub fn new() -> Self {
+    pub fn new(stream: TcpStream) -> Self {
         let (tx, rx) = mpsc::channel(16);
-        let task = ActorTask { receiver: rx };
+        let task = ActorTask {
+            receiver: rx,
+            stream,
+        };
         tokio::spawn(task.entrypoint());
         Self { sender: tx }
     }
@@ -29,6 +34,7 @@ enum Msg {
 
 struct ActorTask {
     receiver: mpsc::Receiver<Msg>,
+    stream: TcpStream,
 }
 
 impl ActorTask {
@@ -46,10 +52,15 @@ impl ActorTask {
                 msg = self.receiver.select_next_some() => {
                     match msg {
                         Msg::Terminate => {
+                            self.stream.shutdown(Shutdown::Both)?;
                             break;
                         }
                     }
                 }
+                /* TODO: Wrap stream with codec and use here:
+                data = self.stream.select_next_some() => {
+                }
+                */
             }
         }
         Ok(())
